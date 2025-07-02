@@ -155,11 +155,8 @@ const Customers: React.FC = () => {
           closeModal()
         }
         
-        // Forçar re-renderização com nova key antes de recarregar
+        // Forçar re-renderização com nova key
         setKey(Date.now())
-        
-        // Solução mais radical: recarregar a página completamente
-        window.location.reload()
       } catch (error) {
         alert('Erro ao excluir cliente!')
         console.error(error)
@@ -183,7 +180,7 @@ const Customers: React.FC = () => {
         <h1 className="text-2xl font-bold text-gray-900">Clientes</h1>
         <button
           onClick={() => openModal()}
-          className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors flex items-center space-x-2 shadow-red-sm"
+          className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors flex items-center space-x-2 shadow-sm"
         >
           <Plus className="h-5 w-5" />
           <span>Novo Cliente</span>
@@ -374,7 +371,7 @@ const Customers: React.FC = () => {
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 bg-primary-600 text-white py-2 rounded-lg hover:bg-primary-700 transition-colors shadow-red-sm"
+                    className="flex-1 bg-primary-600 text-white py-2 rounded-lg hover:bg-primary-700 transition-colors shadow-sm"
                   >
                     {editingCustomer ? 'Atualizar' : 'Criar'}
                   </button>

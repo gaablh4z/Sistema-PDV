@@ -132,26 +132,47 @@ const Sales: React.FC = () => {
   // Buscar produto por código de barras
   const handleBarcodeSearch = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!barcodeInput.trim()) return
+    
+    // Validações de entrada
+    if (!barcodeInput?.trim()) {
+      alert('🔍 Digite um código de barras válido!')
+      return
+    }
+
+    if (barcodeInput.trim().length < 3) {
+      alert('🔍 Código de barras muito curto! Digite pelo menos 3 caracteres.')
+      return
+    }
 
     const product = await getProductByBarcode(barcodeInput.trim())
     if (product) {
       if (product.stock <= 0) {
-        alert('Produto sem estoque!')
+        alert('⚠️ Produto sem estoque disponível! Verifique o estoque antes de continuar.')
         return
       }
       addToCart(product)
       setBarcodeInput('')
       focusBarcodeInput() // Manter foco no input
     } else {
-      alert('Produto não encontrado!')
+      alert('🔍 Produto não encontrado! Verifique o código de barras e tente novamente.')
     }
   }
 
   // Adicionar produto ao carrinho
   const addToCart = (product: Product) => {
+    // Validações de segurança
+    if (!product || !product.id || !product.name) {
+      alert('❌ Produto inválido! Tente buscar novamente.')
+      return
+    }
+
     if (product.stock <= 0) {
-      alert('Produto sem estoque!')
+      alert('⚠️ Produto sem estoque disponível! Entre em contato com o fornecedor.')
+      return
+    }
+
+    if (product.price <= 0) {
+      alert('⚠️ Produto com preço inválido! Verifique o cadastro do produto.')
       return
     }
 
@@ -159,7 +180,7 @@ const Sales: React.FC = () => {
     
     if (existingItem) {
       if (existingItem.quantity >= product.stock) {
-        alert('Quantidade maior que o estoque disponível!')
+        alert(`📦 Estoque insuficiente! Disponível: ${product.stock} unidades. No carrinho: ${existingItem.quantity}`)
         return
       }
       updateQuantity(product.id, existingItem.quantity + 1)
@@ -188,7 +209,7 @@ const Sales: React.FC = () => {
 
     const product = products.find(p => p.id === productId)
     if (product && newQuantity > product.stock) {
-      alert('Quantidade maior que o estoque disponível!')
+      alert(`📦 Estoque insuficiente! Máximo disponível: ${product.stock} unidades`)
       return
     }
 
@@ -210,13 +231,13 @@ const Sales: React.FC = () => {
     
     if (discountType === 'percent') {
       if (amount > 100) {
-        alert('Desconto não pode ser maior que 100%')
+        alert('📊 Desconto percentual não pode ser maior que 100%')
         return
       }
       setTotalDiscount((subtotal * amount) / 100)
     } else {
       if (amount > subtotal) {
-        alert('Desconto não pode ser maior que o valor total')
+        alert('💰 Desconto não pode ser maior que o valor total da compra')
         return
       }
       setTotalDiscount(amount)
@@ -235,22 +256,29 @@ const Sales: React.FC = () => {
 
   // Limpar carrinho
   const clearCart = () => {
-    if (window.confirm('Deseja limpar todo o carrinho?')) {
+    if (cartItems.length === 0) {
+      alert('🛒 Carrinho já está vazio!')
+      return
+    }
+    
+    if (window.confirm('🗑️ Deseja limpar todo o carrinho? Esta ação não pode ser desfeita.')) {
       setCartItems([])
       setTotalDiscount(0)
       setSelectedCustomer(null)
+      alert('✅ Carrinho limpo com sucesso!')
+      focusBarcodeInput()
     }
   }
 
   // Finalizar venda
   const finalizeSale = async () => {
     if (cartItems.length === 0) {
-      alert('Carrinho vazio!')
+      alert('🛒 Carrinho vazio! Adicione produtos antes de finalizar a venda.')
       return
     }
 
     if (paymentMethod === 'cash' && change < 0) {
-      alert('Valor pago insuficiente!')
+      alert(`💵 Valor pago insuficiente! Faltam R$ ${Math.abs(change).toFixed(2)}`)
       return
     }
 
@@ -290,8 +318,8 @@ const Sales: React.FC = () => {
       // Focar novamente no input
       focusBarcodeInput()
     } catch (error) {
-      alert('Erro ao finalizar venda!')
-      console.error(error)
+      alert('❌ Erro ao finalizar venda. Verifique os dados e tente novamente.')
+      console.error('Erro detalhado:', error)
     } finally {
       setIsProcessing(false)
     }
@@ -908,11 +936,11 @@ const Sales: React.FC = () => {
                   <>
                     <div className="flex justify-between text-sm">
                       <span>Recebido:</span>
-                      <span>R$ {lastSale.amount_paid.toFixed(2)}</span>
+                      <span>R$ {(lastSale.amount_paid || 0).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span>Troco:</span>
-                      <span>R$ {lastSale.change.toFixed(2)}</span>
+                      <span>R$ {(lastSale.change || 0).toFixed(2)}</span>
                     </div>
                   </>
                 )}

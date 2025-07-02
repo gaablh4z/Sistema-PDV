@@ -446,8 +446,8 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const getSalesByDateRange = async (startDate: string, endDate: string): Promise<Sale[]> => {
     return sales.filter(sale => {
-      const saleDate = new Date(sale.created_at)
-      return saleDate >= new Date(startDate) && saleDate <= new Date(endDate)
+      const saleDate = new Date(sale.created_at).toISOString().split('T')[0]
+      return saleDate >= startDate && saleDate <= endDate
     })
   }
 
