@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, KeyboardEvent } from 'react'
 import { useDatabase, Product } from '../contexts/DatabaseContext'
 import { 
   Plus, 
@@ -11,7 +11,9 @@ import {
   RefreshCw,
   Tag,
   DollarSign,
-  BarChart
+  BarChart,
+  ScanLine,
+  AlertCircle
 } from 'lucide-react'
 
 const Products: React.FC = () => {
@@ -35,6 +37,12 @@ const Products: React.FC = () => {
   
   // Referência para o primeiro campo do formulário
   const nameInputRef = useRef<HTMLInputElement>(null)
+  // Referência para o campo de código de barras
+  const barcodeInputRef = useRef<HTMLInputElement>(null)
+  // Estado para controlar quando estamos em modo de leitura de código de barras
+  const [barcodeReaderMode, setBarcodeReaderMode] = useState(false)
+  // Estado para mensagens de feedback ao usuário
+  const [feedback, setFeedback] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
 
   // Monitorar exclusões para resetar o estado do formulário se o produto sendo editado for excluído
   useEffect(() => {
@@ -45,12 +53,28 @@ const Products: React.FC = () => {
 
   // Focar no primeiro campo ao abrir o modal
   useEffect(() => {
-    if (showModal && nameInputRef.current) {
+    if (showModal) {
       setTimeout(() => {
-        nameInputRef.current?.focus()
+        // Se for um produto novo, focar no código de barras para leitura imediata
+        if (!editingProduct && barcodeInputRef.current) {
+          barcodeInputRef.current.focus()
+          setBarcodeReaderMode(true)
+          setFeedback({
+            message: 'Pronto para leitura do código de barras',
+            type: 'info'
+          })
+        } 
+        // Se estiver editando, focar no nome do produto
+        else if (nameInputRef.current) {
+          nameInputRef.current.focus()
+        }
       }, 100)
+    } else {
+      // Limpar feedback quando o modal é fechado
+      setFeedback(null)
+      setBarcodeReaderMode(false)
     }
-  }, [showModal])
+  }, [showModal, editingProduct])
 
   const filteredProducts = products.filter(product => {
     // Filtragem por termo de busca
@@ -208,6 +232,60 @@ const Products: React.FC = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [key]) // Executar sempre que a key mudar (após uma exclusão)
+
+  // Processar a leitura do código de barras
+  const handleBarcodeInput = (e: KeyboardEvent<HTMLInputElement>) => {
+    // Os leitores de código de barras geralmente terminam com Enter
+    if (e.key === 'Enter' && barcodeReaderMode) {
+      e.preventDefault() // Evitar o envio do formulário
+      
+      // Verificar se temos um código de barras válido
+      const barcode = formData.barcode.trim()
+      if (!barcode) {
+        setFeedback({
+          message: 'Código de barras não detectado, tente novamente',
+          type: 'error'
+        })
+        return
+      }
+      
+      // Verificar se o código já existe no sistema
+      const existingProduct = products.find(p => p.barcode === barcode)
+      if (existingProduct) {
+        setFeedback({
+          message: `Este código já está registrado para o produto: ${existingProduct.name}`,
+          type: 'error'
+        })
+        return
+      }
+      
+      // Código de barras lido com sucesso
+      setFeedback({
+        message: `Código de barras ${barcode} lido com sucesso!`,
+        type: 'success'
+      })
+      
+      // Focar no próximo campo (nome do produto)
+      nameInputRef.current?.focus()
+      setBarcodeReaderMode(false)
+    }
+  }
+
+  // Alternar o modo de leitura de código de barras
+  const toggleBarcodeReaderMode = () => {
+    setBarcodeReaderMode(!barcodeReaderMode)
+    if (!barcodeReaderMode) {
+      // Limpar o campo e focar nele
+      setFormData({ ...formData, barcode: '' })
+      setFeedback({
+        message: 'Pronto para leitura do código de barras',
+        type: 'info'
+      })
+      setTimeout(() => barcodeInputRef.current?.focus(), 100)
+    } else {
+      setFeedback(null)
+    }
+  }
 
   return (
     <div className="space-y-6" key={key}>
@@ -460,14 +538,61 @@ const Products: React.FC = () => {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Código de Barras</label>
-                  <input
-                    type="text"
-                    value={formData.barcode}
-                    onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+                  <label className="flex items-center justify-between">
+                    <span className="block text-sm font-medium text-gray-700 mb-1">Código de Barras</span>
+                    <button 
+                      type="button"
+                      onClick={toggleBarcodeReaderMode}
+                      className={`text-xs flex items-center ${barcodeReaderMode ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'} px-2 py-1 rounded-md`}
+                    >
+                      <ScanLine className="h-3 w-3 mr-1" />
+                      {barcodeReaderMode ? 'Modo Leitura Ativo' : 'Ativar Leitor'}
+                    </button>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={formData.barcode}
+                      onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                      onKeyDown={handleBarcodeInput}
+                      ref={barcodeInputRef}
+                      required
+                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent ${
+                        barcodeReaderMode 
+                          ? 'border-green-300 focus:ring-green-500 bg-green-50' 
+                          : 'border-gray-300 focus:ring-blue-500'
+                      }`}
+                      placeholder={barcodeReaderMode ? "Aguardando leitura..." : "Digite ou escaneie o código"}
+                    />
+                    {barcodeReaderMode && (
+                      <ScanLine className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-green-600 animate-pulse" />
+                    )}
+                  </div>
+                  {feedback && (
+                    <div className={`mt-1 text-sm flex items-center ${
+                      feedback.type === 'success' ? 'text-green-600' : 
+                      feedback.type === 'error' ? 'text-red-600' : 'text-blue-600'
+                    }`}>
+                      {feedback.type === 'success' ? (
+                        <span className="flex items-center">
+                          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          {feedback.message}
+                        </span>
+                      ) : feedback.type === 'error' ? (
+                        <span className="flex items-center">
+                          <AlertCircle className="w-4 h-4 mr-1" />
+                          {feedback.message}
+                        </span>
+                      ) : (
+                        <span className="flex items-center">
+                          <ScanLine className="w-4 h-4 mr-1" />
+                          {feedback.message}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4">

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { useDatabase, Product, SaleItem } from '../contexts/DatabaseContext'
 import { 
   ShoppingCart, 
@@ -15,15 +15,19 @@ import {
   CheckCircle,
   Clock,
   Users,
-  Package
+  Package,
+  ScanLine,
+  AlertCircle
 } from 'lucide-react'
 
 const Sales: React.FC = () => {
   const { products, customers, addSale, getProductByBarcode } = useDatabase()
   const [cartItems, setCartItems] = useState<SaleItem[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<number | null>(null)
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'pix'>('cash')
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'pix' | 'credit'>('cash')
   const [barcodeInput, setBarcodeInput] = useState('')
+  const [barcodeReaderMode, setBarcodeReaderMode] = useState(true)
+  const [feedback, setFeedback] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
   const [searchProduct, setSearchProduct] = useState('')
   const [showProductSearch, setShowProductSearch] = useState(false)
   const [showDiscountModal, setShowDiscountModal] = useState(false)
@@ -128,23 +132,78 @@ const Sales: React.FC = () => {
       }
     }, 100)
   }
+  
+  // Lidar com entrada do código de barras via scanner
+  const handleBarcodeKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    // Os leitores de código de barras geralmente terminam com Enter
+    if (e.key === 'Enter' && barcodeReaderMode) {
+      e.preventDefault()
+      handleBarcodeSearch(e as any)
+    }
+  }
+
+  // Alternar o modo de leitura de código de barras
+  const toggleBarcodeReaderMode = () => {
+    setBarcodeReaderMode(!barcodeReaderMode)
+    if (!barcodeReaderMode) {
+      // Limpar o campo e focar nele
+      setBarcodeInput('')
+      setFeedback({
+        message: 'Modo de leitura de código de barras ativado',
+        type: 'info'
+      })
+      focusBarcodeInput()
+    } else {
+      setFeedback(null)
+    }
+  }
 
   // Buscar produto por código de barras
   const handleBarcodeSearch = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!barcodeInput.trim()) return
+    if (!barcodeInput.trim()) {
+      setFeedback({
+        message: 'Digite ou escaneie um código de barras',
+        type: 'error'
+      })
+      return
+    }
+
+    // Processar o código de barras
+    setFeedback({
+      message: 'Buscando produto...',
+      type: 'info'
+    })
 
     const product = await getProductByBarcode(barcodeInput.trim())
     if (product) {
       if (product.stock <= 0) {
-        alert('Produto sem estoque!')
+        setFeedback({
+          message: `Produto "${product.name}" sem estoque!`,
+          type: 'error'
+        })
         return
       }
+
+      // Produto encontrado e com estoque
+      setFeedback({
+        message: `Produto "${product.name}" adicionado ao carrinho!`,
+        type: 'success'
+      })
+      
       addToCart(product)
       setBarcodeInput('')
       focusBarcodeInput() // Manter foco no input
+      
+      // Limpar o feedback após um tempo
+      setTimeout(() => {
+        setFeedback(null)
+      }, 3000)
     } else {
-      alert('Produto não encontrado!')
+      setFeedback({
+        message: `Código de barras ${barcodeInput} não encontrado!`,
+        type: 'error'
+      })
     }
   }
 
@@ -253,6 +312,34 @@ const Sales: React.FC = () => {
       alert('Valor pago insuficiente!')
       return
     }
+    
+    // Verificar se é possível venda fiado
+    if (paymentMethod === 'credit') {
+      // Cliente é obrigatório para venda fiado
+      if (!selectedCustomer) {
+        alert('Selecione um cliente para venda fiado!')
+        return
+      }
+      
+      // Verificar se o cliente tem crédito
+      const customer = customers.find(c => c.id === selectedCustomer)
+      if (!customer) {
+        alert('Cliente não encontrado!')
+        return
+      }
+      
+      if (!customer.hasCredit) {
+        alert('Este cliente não tem permissão para compras fiado!')
+        return
+      }
+      
+      // Verificar o limite de crédito
+      const newDebt = customer.currentDebt + totalAmount
+      if (newDebt > customer.creditLimit) {
+        alert(`Limite de crédito excedido!\nLimite: R$ ${customer.creditLimit.toFixed(2)}\nDébito atual: R$ ${customer.currentDebt.toFixed(2)}\nValor da compra: R$ ${totalAmount.toFixed(2)}`)
+        return
+      }
+    }
 
     setIsProcessing(true)
 
@@ -267,9 +354,12 @@ const Sales: React.FC = () => {
         total_amount: totalAmount,
         discount: totalDiscount,
         payment_method: paymentMethod,
-        amount_paid: paymentMethod === 'cash' ? parseFloat(amountPaid) : totalAmount,
+        amount_paid: paymentMethod === 'cash' ? parseFloat(amountPaid) : 
+                    (paymentMethod === 'credit' ? 0 : totalAmount),
         change: paymentMethod === 'cash' ? change : 0,
-        items: cartItems
+        items: cartItems,
+        credit_payment_date: paymentMethod === 'credit' ? new Date().toISOString() : undefined,
+        credit_paid: false
       }
 
       await addSale(saleData)
@@ -346,31 +436,78 @@ const Sales: React.FC = () => {
         <div className="lg:col-span-2 space-y-6">
           {/* Busca por Código de Barras */}
           <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-              <Package className="mr-2 text-primary-600" />
-              Código de Barras
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                <Package className="mr-2 text-primary-600" />
+                Código de Barras
+              </h3>
+              <button
+                type="button"
+                onClick={toggleBarcodeReaderMode}
+                className={`text-xs flex items-center px-3 py-1.5 rounded-lg transition-colors ${
+                  barcodeReaderMode 
+                    ? 'bg-green-100 text-green-800 hover:bg-green-200' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                <ScanLine className="h-3.5 w-3.5 mr-1" />
+                {barcodeReaderMode ? 'Modo Scanner Ativo' : 'Ativar Scanner'}
+              </button>
+            </div>
+            
             <form onSubmit={handleBarcodeSearch} className="flex space-x-2">
-              <input
-                ref={barcodeInputRef}
-                type="text"
-                value={barcodeInput}
-                onChange={(e) => setBarcodeInput(e.target.value)}
-                placeholder="Digite ou escaneie o código de barras..."
-                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-lg"
-                autoComplete="off"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck="false"
-                tabIndex={1}
-              />
+              <div className="relative flex-1">
+                <input
+                  ref={barcodeInputRef}
+                  type="text"
+                  value={barcodeInput}
+                  onChange={(e) => setBarcodeInput(e.target.value)}
+                  onKeyDown={handleBarcodeKeyDown}
+                  placeholder={barcodeReaderMode ? "Aguardando leitura do código..." : "Digite ou escaneie o código de barras..."}
+                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:border-transparent text-lg ${
+                    barcodeReaderMode 
+                      ? 'border-green-300 focus:ring-green-500 bg-green-50 pr-10' 
+                      : 'border-gray-300 focus:ring-red-500'
+                  }`}
+                  autoComplete="off"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck="false"
+                  tabIndex={1}
+                />
+                {barcodeReaderMode && (
+                  <ScanLine className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-green-600 animate-pulse" />
+                )}
+              </div>
               <button
                 type="submit"
-                className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                className={`px-6 py-3 text-white rounded-lg transition-colors ${
+                  barcodeReaderMode 
+                    ? 'bg-green-600 hover:bg-green-700' 
+                    : 'bg-red-600 hover:bg-red-700'
+                }`}
               >
                 <Search className="h-5 w-5" />
               </button>
             </form>
+            
+            {feedback && (
+              <div className={`mt-3 px-4 py-2 rounded-lg flex items-center text-sm ${
+                feedback.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 
+                feedback.type === 'error' ? 'bg-red-50 text-red-800 border border-red-200' : 
+                'bg-blue-50 text-blue-800 border border-blue-200'
+              }`}>
+                {feedback.type === 'success' ? (
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                ) : feedback.type === 'error' ? (
+                  <AlertCircle className="h-4 w-4 mr-2" />
+                ) : (
+                  <ScanLine className="h-4 w-4 mr-2" />
+                )}
+                {feedback.message}
+              </div>
+            )}
+            
             <p className="text-sm text-gray-500 mt-2">
               Pressione Enter ou clique no botão para buscar
             </p>
@@ -646,6 +783,21 @@ const Sales: React.FC = () => {
                       <Smartphone className="h-6 w-6 mb-2" />
                       <span className="font-medium">PIX</span>
                     </button>
+                    
+                    {/* Opção Fiado - Disponível apenas se um cliente com crédito for selecionado */}
+                    {selectedCustomer && customers.find(c => c.id === selectedCustomer)?.hasCredit && (
+                      <button
+                        onClick={() => setPaymentMethod('credit')}
+                        className={`flex flex-col items-center p-4 border-2 rounded-xl transition-all ${
+                          paymentMethod === 'credit' 
+                            ? 'border-red-500 bg-red-50 text-red-700' 
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <Clock className="h-6 w-6 mb-2" />
+                        <span className="font-medium">Fiado</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -807,7 +959,8 @@ const Sales: React.FC = () => {
                   <span>Forma de Pagamento:</span>
                   <span className="capitalize">{
                     paymentMethod === 'cash' ? 'Dinheiro' : 
-                    paymentMethod === 'card' ? 'Cartão' : 'PIX'
+                    paymentMethod === 'card' ? 'Cartão' : 
+                    paymentMethod === 'credit' ? 'Fiado' : 'PIX'
                   }</span>
                 </div>
                 {paymentMethod === 'cash' && amountPaid && (
